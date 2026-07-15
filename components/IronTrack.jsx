@@ -34,7 +34,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const EMPTY = {
   workouts: [], logs: {}, diet: [], dietChecks: {}, journal: [], freeFoods: {}, cardio: {},
   profile: {
-    name: "", age: "", sex: "M", startWeight: "", goalWeight: "", height: "", onboarded: false,
+    name: "", age: "", sex: "M", startWeight: "", goalWeight: "", height: "", onboarded: false, goal: "",
     trainTime: "", trainWeek: "", cardioWeek: "", kcalTarget: "", protTarget: "", carbTarget: "", fatTarget: "", restTime: "90",
     weights: [], medidas: { braco: "", peito: "", cintura: "", quadril: "", coxa: "", panturrilha: "" },
   },
@@ -99,6 +99,23 @@ const activityFactor = (p) => {
   if (sessions <= 7) return 1.725;
   return 1.9;
 };
+// Objetivos — faixas do consenso da musculação natural (proteína alta,
+// gordura mínima saudável, carbo fechando a conta calórica)
+const GOALS = {
+  cutting: { label: "Emagrecer / Cutting", desc: "Perder gordura segurando o máximo de massa", emoji: "🔥", kcalDelta: -500, prot: 2.2, fat: 0.8 },
+  bulking: { label: "Hipertrofia / Bulking", desc: "Ganhar massa com o mínimo de gordura", emoji: "💪", kcalDelta: 300, prot: 2.0, fat: 0.9 },
+  manter: { label: "Manter peso", desc: "Recomposição corporal e performance", emoji: "⚖️", kcalDelta: 0, prot: 2.0, fat: 0.9 },
+};
+function goalSuggestions(goal, tdee, peso) {
+  if (!tdee || !peso) return null;
+  const g = GOALS[goal] || GOALS.manter;
+  const kcal = tdee + g.kcalDelta;
+  const prot = Math.round(peso * g.prot);
+  const fat = Math.round(peso * g.fat);
+  const carb = Math.max(0, Math.round((kcal - 4 * prot - 9 * fat) / 4));
+  return { kcal, prot, fat, carb };
+}
+
 const exDoneToday = (data, exId) => (data.logs[exId] || []).some((h) => h.date === todayStr());
 const workoutProgress = (data, w) => !w.exercises.length ? 0 : w.exercises.filter((e) => exDoneToday(data, e.id)).length / w.exercises.length;
 
@@ -1272,10 +1289,12 @@ function TabPerfil({ data, update, onLogout, userEmail }) {
   const imc = calcIMC(peso, Number(p.height));
   const tmb = calcTMB(p, peso);
   const tdee = tmb ? Math.round(tmb * activityFactor(p)) : null;
-  const sugKcal = tdee ? tdee - 500 : null;
-  const sugProt = peso ? Math.round(peso * 2) : null;
-  const sugFat = peso ? Math.round(peso * 0.8) : null;
-  const sugCarb = sugKcal && sugProt && sugFat ? Math.max(0, Math.round((sugKcal - 4 * sugProt - 9 * sugFat) / 4)) : null;
+  const goalKey = p.goal || (peso && Number(p.goalWeight) ? (Number(p.goalWeight) < peso ? "cutting" : Number(p.goalWeight) > peso ? "bulking" : "manter") : "");
+  const sug = goalKey ? goalSuggestions(goalKey, tdee, peso) : null;
+  const sugKcal = sug ? sug.kcal : null;
+  const sugProt = sug ? sug.prot : null;
+  const sugFat = sug ? sug.fat : null;
+  const sugCarb = sug ? sug.carb : null;
 
   const askNotif = async () => {
     try {
@@ -1320,7 +1339,16 @@ function TabPerfil({ data, update, onLogout, userEmail }) {
 
       {/* ROTINA */}
       <Card style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={S.label}>Rotina de treino</div>
+        <div style={S.label}>Objetivo e rotina</div>
+        <div>
+          <div style={{ ...S.label, marginBottom: 6 }}>Objetivo</div>
+          <select style={S.input} value={p.goal || ""} onChange={(e) => setField("goal", e.target.value)}>
+            <option value="">Selecione...</option>
+            <option value="cutting">🔥 Emagrecer / Cutting</option>
+            <option value="bulking">💪 Hipertrofia / Bulking</option>
+            <option value="manter">⚖️ Manter peso</option>
+          </select>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <PField label="Treinos / semana" value={p.trainWeek} onChange={(v) => setField("trainWeek", v)} placeholder="ex: 5" />
           <PField label="Cardio (min/sem)" value={p.cardioWeek} onChange={(v) => setField("cardioWeek", v)} placeholder="ex: 120" />
@@ -1355,9 +1383,14 @@ function TabPerfil({ data, update, onLogout, userEmail }) {
           <Stat label="TMB" value={tmb ? tmb : "—"} sub="kcal basal/dia" />
           <Stat label="Gasto total" value={tdee ? tdee : "—"} sub="kcal/dia estimado" accent />
         </div>
-        {tdee && (
+        {tdee && sug && (
           <p style={{ fontSize: 12, color: T.muted, marginTop: 12, marginBottom: 0, lineHeight: 1.6 }}>
-            TMB por Mifflin-St Jeor + fator de atividade da sua rotina. Pra cutting clássico, déficit de ~500 kcal → meta de <b style={{ color: T.accent }}>{tdee - 500} kcal/dia</b> com proteína alta ({peso ? `~${Math.round(peso * 2)}g` : "2g/kg"}) pra segurar a massa. São estimativas — ajusta pela balança e espelho semana a semana.
+            TMB por Mifflin-St Jeor + fator de atividade. Pro objetivo <b style={{ color: T.text }}>{GOALS[goalKey]?.label || ""}</b>: meta de <b style={{ color: T.accent }}>{sugKcal} kcal/dia</b>, proteína <b style={{ color: T.accent }}>{sugProt}g</b> ({GOALS[goalKey]?.prot}g/kg), gordura {sugFat}g e carbo {sugCarb}g fechando a conta — a linha da musculação natural. São estimativas: calibra pela balança e espelho semana a semana.
+          </p>
+        )}
+        {tdee && !sug && (
+          <p style={{ fontSize: 12, color: T.muted, marginTop: 12, marginBottom: 0, lineHeight: 1.6 }}>
+            Selecione seu objetivo acima pra eu calcular as metas de kcal e macros.
           </p>
         )}
       </ACard>
@@ -1438,7 +1471,7 @@ function TabPerfil({ data, update, onLogout, userEmail }) {
 function Onboarding({ onFinish }) {
   const [step, setStep] = useState(0);
   const [f, setF] = useState({
-    name: "", age: "", sex: "M", height: "", pesoAtual: "", goalWeight: "",
+    name: "", age: "", sex: "M", goal: "", height: "", pesoAtual: "", goalWeight: "",
     trainWeek: "", cardioWeek: "", restTime: "90",
     kcalTarget: "", protTarget: "", carbTarget: "", fatTarget: "",
   });
@@ -1453,18 +1486,17 @@ function Onboarding({ onFinish }) {
     return s <= 0.5 ? 1.2 : s <= 3 ? 1.375 : s <= 5 ? 1.55 : s <= 7 ? 1.725 : 1.9;
   })();
   const tdee = tmb ? Math.round(tmb * fator) : null;
-  const cutting = peso && Number(f.goalWeight) && Number(f.goalWeight) < peso;
-  const sug = tdee && peso ? (() => {
-    const kcal = cutting ? tdee - 500 : tdee;
-    const prot = Math.round(peso * 2), fat = Math.round(peso * 0.8);
-    return { kcal, prot, fat, carb: Math.max(0, Math.round((kcal - 4 * prot - 9 * fat) / 4)) };
-  })() : null;
+  const sug = goalSuggestions(f.goal, tdee, peso);
 
-  const TOTAL = 4;
-  const canNext = step === 0 ? !!f.name.trim() : step === 1 ? !!(f.height && f.pesoAtual && f.goalWeight) : true;
+  const TOTAL = 5;
+  const canNext =
+    step === 0 ? !!f.name.trim() :
+    step === 1 ? !!f.goal :
+    step === 2 ? !!(f.height && f.pesoAtual && f.goalWeight) :
+    true;
 
   const next = () => {
-    if (step === 2 && sug) {
+    if (step === 3 && sug) {
       setF((s) => ({
         ...s,
         kcalTarget: s.kcalTarget || String(sug.kcal),
@@ -1522,6 +1554,31 @@ function Onboarding({ onFinish }) {
         )}
 
         {step === 1 && (
+          <div className="fade-up" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={S.label}>Qual seu objetivo?</div>
+            {Object.entries(GOALS).map(([key, g]) => (
+              <button
+                key={key}
+                onClick={() => set("goal", key)}
+                style={{
+                  textAlign: "left", padding: "14px 16px", borderRadius: 12, cursor: "pointer",
+                  background: f.goal === key ? T.accentSoft : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${f.goal === key ? T.accent : T.border}`,
+                  color: T.text, fontFamily: font.body, transition: "all .2s",
+                  boxShadow: f.goal === key ? "0 0 18px rgba(245,165,36,0.15)" : "none",
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 14.5 }}>{g.emoji} {g.label}</div>
+                <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>{g.desc}</div>
+              </button>
+            ))}
+            <p style={{ fontSize: 11.5, color: T.muted, margin: "4px 0 0", lineHeight: 1.5 }}>
+              O objetivo define suas metas de kcal e macros — proteína alta em todos, o que muda é o saldo calórico.
+            </p>
+          </div>
+        )}
+
+        {step === 2 && (
           <div className="fade-up" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={S.label}>Corpo e meta</div>
             <div style={row3}>
@@ -1542,7 +1599,7 @@ function Onboarding({ onFinish }) {
           </div>
         )}
 
-        {step === 2 && (
+        {step === 3 && (
           <div className="fade-up" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={S.label}>Sua rotina</div>
             <div style={row2}>
@@ -1562,13 +1619,16 @@ function Onboarding({ onFinish }) {
           </div>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <div className="fade-up" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={S.label}>Metas do dia — calculadas pra você</div>
-            {tdee && (
+            <div style={S.label}>Metas do dia — calculadas pro seu objetivo</div>
+            {tdee && sug && (
               <p style={{ fontSize: 12.5, color: T.muted, margin: 0, lineHeight: 1.6 }}>
-                Seu gasto estimado é <b style={{ color: T.text }}>{tdee} kcal/dia</b>.
-                {cutting ? " Pro corte, sugeri déficit de ~500 kcal com proteína alta. Ajusta se quiser:" : " Ajusta se quiser:"}
+                Gasto estimado: <b style={{ color: T.text }}>{tdee} kcal/dia</b>.{" "}
+                {f.goal === "cutting" && <>Pro corte: déficit de ~500 kcal e proteína alta (2,2g/kg) pra segurar a massa.</>}
+                {f.goal === "bulking" && <>Pra hipertrofia: superávit leve de ~300 kcal pra crescer com o mínimo de gordura.</>}
+                {f.goal === "manter" && <>Pra manutenção: kcal no gasto e proteína alta pra recomposição.</>}
+                {" "}Ajusta se quiser:
               </p>
             )}
             <div style={row2}>
@@ -1721,6 +1781,7 @@ export default function IronTrack({ user, onLogout }) {
       profile: {
         ...d.profile,
         onboarded: true,
+        goal: f.goal,
         name: f.name.trim(),
         age: f.age, sex: f.sex, height: f.height,
         startWeight: f.pesoAtual, goalWeight: f.goalWeight,
