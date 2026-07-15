@@ -1,0 +1,52 @@
+# IronTrack 🏋️
+
+Treino, dieta e evolução — PWA em Next.js + Supabase.
+
+## Setup (10 min)
+
+### 1. Supabase
+1. Cria um projeto novo em [supabase.com](https://supabase.com) (free tier resolve).
+2. No **SQL Editor**, cola e roda o conteúdo de `supabase/schema.sql`.
+3. Em **Authentication > Providers > Email**: se quiser entrar direto sem confirmar e-mail, desativa "Confirm email".
+4. Em **Project Settings > API**, copia a `URL` e a `anon public key`.
+
+### 2. Local
+```bash
+cp .env.local.example .env.local
+# edita o .env.local com a URL e anon key do passo anterior
+npm install
+npm run dev
+```
+Abre http://localhost:3000, cria sua conta e testa.
+
+### 3. Deploy na Vercel
+```bash
+npm i -g vercel   # se ainda não tiver
+vercel
+```
+No dashboard da Vercel (ou via `vercel env add`), adiciona as duas variáveis:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+Depois `vercel --prod`.
+
+### 4. Instalar no iPhone
+1. Abre a URL de produção **no Safari** (tem que ser Safari).
+2. Botão de compartilhar → **"Adicionar à Tela de Início"**.
+3. Abre pelo ícone — roda em tela cheia, com notch respeitado, igual app nativo.
+
+## Arquitetura
+- **Dados**: Supabase é a fonte da verdade (tabela `user_data`, 1 linha JSONB por usuário, RLS ligado — cada um só vê o seu). `localStorage` funciona como cache: escrita local instantânea + sync com debounce de 1,2s pra nuvem. Offline continua funcionando; sincroniza quando voltar.
+- **Auth**: e-mail + senha via Supabase Auth.
+- **PWA**: `manifest.json` + `sw.js` (network-first com fallback em cache) + meta tags iOS no layout.
+
+## Limitações conhecidas (iOS)
+- **Timer de descanso** não conta com a tela bloqueada (iOS congela JS em background).
+- **Notificações** de refeição/treino disparam com o app aberto. Push real com app fechado = fase 2: Web Push com VAPID + handler no `sw.js` (iOS 16.4+, app instalado na home). O esqueleto do listener já tá comentado no `sw.js`.
+- Multi-dispositivo funciona (dados na nuvem), mas sem merge: vale o último que salvou.
+
+## Fase 2 (backlog)
+- Web Push (lembretes com app fechado)
+- Exportar/importar backup JSON
+- Histórico de medidas com data + gráfico
+- Base de alimentos BR
