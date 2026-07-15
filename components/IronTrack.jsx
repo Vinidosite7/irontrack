@@ -1371,6 +1371,25 @@ function TabPerfil({ data, update, onLogout, userEmail }) {
           <span style={{ fontSize: 13, color: T.muted, flex: 1 }}>Lembrete de treino às:</span>
           <input style={{ ...S.input, width: 120 }} type="time" value={p.trainTime || ""} onChange={(e) => setField("trainTime", e.target.value)} />
         </div>
+        {data.diet.length > 0 ? (
+          <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ ...S.label, marginBottom: 2 }}>Avisos de refeição</div>
+            {data.diet.slice().sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99")).map((m) => (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 13, color: T.muted, flex: 1 }}>{m.name}</span>
+                <input
+                  style={{ ...S.input, width: 120 }} type="time" value={m.time || ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    update((d) => ({ ...d, diet: d.diet.map((x) => (x.id === m.id ? { ...x, time: v } : x)) }));
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p style={{ fontSize: 12, color: T.muted, margin: "0 0 12px" }}>Crie suas refeições na aba Dieta e os horários de aviso aparecem aqui.</p>
+        )}
         <BtnShimmer onClick={askNotif} green={notifStatus === "granted"} disabled={notifStatus === "granted"} style={{ width: "100%" }}>
           {notifStatus === "granted" ? "✓ Notificações do navegador ativas" : "Ativar notificações do navegador"}
         </BtnShimmer>
@@ -1403,6 +1422,15 @@ function TabPerfil({ data, update, onLogout, userEmail }) {
     </div>
   );
 }
+
+// ============ ÍCONES DA NAV (SVG stroke, estilo lucide) ============
+const NAV_ICONS = {
+  dash: <><path d="m12 14 4-4" /><path d="M3.34 19a10 10 0 1 1 17.32 0" /></>,
+  treino: <><path d="M14.4 14.4 9.6 9.6" /><path d="M18.657 21.485a2 2 0 1 1-2.829-2.828l-1.767 1.768a2 2 0 1 1-2.829-2.829l6.364-6.364a2 2 0 1 1 2.829 2.829l-1.768 1.767a2 2 0 1 1 2.828 2.829z" /><path d="m21.5 21.5-1.4-1.4" /><path d="M3.9 3.9 2.5 2.5" /><path d="M6.404 12.768a2 2 0 1 1-2.829-2.829l1.768-1.767a2 2 0 1 1-2.828-2.829l2.828-2.828a2 2 0 1 1 2.829 2.828l1.767-1.768a2 2 0 1 1 2.829 2.829z" /></>,
+  dieta: <><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" /><path d="M7 2v20" /><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" /></>,
+  diario: <><path d="M8 2v4" /><path d="M16 2v4" /><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M3 10h18" /></>,
+  perfil: <><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>,
+};
 
 // ============ APP ============
 export default function IronTrack({ user, onLogout }) {
@@ -1488,11 +1516,11 @@ export default function IronTrack({ user, onLogout }) {
   }, [data]);
 
   const tabs = [
-    { id: "dash", label: "Dash", icon: "📊" },
-    { id: "treino", label: "Treino", icon: "🏋️" },
-    { id: "dieta", label: "Dieta", icon: "🍗" },
-    { id: "diario", label: "Diário", icon: "🗓️" },
-    { id: "perfil", label: "Perfil", icon: "👤" },
+    { id: "dash", label: "Dash" },
+    { id: "treino", label: "Treino" },
+    { id: "dieta", label: "Dieta" },
+    { id: "diario", label: "Diário" },
+    { id: "perfil", label: "Perfil" },
   ];
 
   return (
@@ -1678,7 +1706,7 @@ export default function IronTrack({ user, onLogout }) {
               display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
               transition: "all .2s", boxShadow: tab === t.id ? "0 0 18px rgba(245,165,36,0.15)" : "none",
             }}>
-            <span style={{ fontSize: 17 }}>{t.icon}</span>
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{NAV_ICONS[t.id]}</svg>
             {t.label}
           </button>
         ))}
