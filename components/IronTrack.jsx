@@ -34,7 +34,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const EMPTY = {
   workouts: [], logs: {}, diet: [], dietChecks: {}, journal: [], freeFoods: {}, cardio: {},
   profile: {
-    name: "", age: "", sex: "M", startWeight: "", goalWeight: "", height: "",
+    name: "", age: "", sex: "M", startWeight: "", goalWeight: "", height: "", onboarded: false,
     trainTime: "", trainWeek: "", cardioWeek: "", kcalTarget: "", protTarget: "", carbTarget: "", fatTarget: "", restTime: "90",
     weights: [], medidas: { braco: "", peito: "", cintura: "", quadril: "", coxa: "", panturrilha: "" },
   },
@@ -317,7 +317,7 @@ function WeightGauge({ start, goal, atual }) {
         background: done ? T.greenSoft : T.accentSoft, color: done ? T.green : T.accent,
         border: `1px solid ${done ? "rgba(74,222,128,0.3)" : "rgba(245,165,36,0.3)"}`,
       }}>
-        {hasAll ? (done ? "META ATINGIDA 🏆" : `${Math.round(p * 100)}% · faltam ${Math.abs(a - g).toFixed(1)}kg`) : "Configure peso e meta no Perfil"}
+        {hasAll ? (done ? "META ATINGIDA 🏆" : `${Math.round(p * 100)}% · faltam ${Math.abs(a - g).toFixed(1)}kg`) : (s && g ? "Registre seu peso de hoje aqui embaixo 👇" : "Configure peso e meta no Perfil")}
       </div>
     </div>
   );
@@ -1333,6 +1333,17 @@ function TabPerfil({ data, update, onLogout, userEmail }) {
           <PField label="Meta carbo/dia" value={p.carbTarget} onChange={(v) => setField("carbTarget", v)} placeholder={sugCarb ? `sugestão: ${sugCarb}g` : "g"} />
           <PField label="Meta gordura/dia" value={p.fatTarget} onChange={(v) => setField("fatTarget", v)} placeholder={sugFat ? `sugestão: ${sugFat}g` : "g"} />
         </div>
+        {sugKcal && sugProt && (
+          <button
+            style={{ ...S.btnGhost, fontSize: 12.5, padding: "11px", color: T.accent, borderColor: "rgba(245,165,36,0.35)" }}
+            onClick={() => update((d) => ({
+              ...d,
+              profile: { ...d.profile, kcalTarget: String(sugKcal), protTarget: String(sugProt), carbTarget: String(sugCarb || ""), fatTarget: String(sugFat) },
+            }))}
+          >
+            ⚡ Aplicar sugestões: {sugKcal} kcal · {sugProt}g P · {sugCarb}g C · {sugFat}g G
+          </button>
+        )}
         <PField label="Descanso entre séries (segundos)" value={p.restTime} onChange={(v) => setField("restTime", v)} placeholder="90" />
       </Card>
 
@@ -1423,6 +1434,185 @@ function TabPerfil({ data, update, onLogout, userEmail }) {
   );
 }
 
+// ============ ONBOARDING ============
+function Onboarding({ onFinish }) {
+  const [step, setStep] = useState(0);
+  const [f, setF] = useState({
+    name: "", age: "", sex: "M", height: "", pesoAtual: "", goalWeight: "",
+    trainWeek: "", cardioWeek: "", restTime: "90",
+    kcalTarget: "", protTarget: "", carbTarget: "", fatTarget: "",
+  });
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+
+  const peso = Number(f.pesoAtual) || null;
+  const tmb = peso && f.height && f.age
+    ? Math.round(10 * peso + 6.25 * Number(f.height) - 5 * Number(f.age) + (f.sex === "F" ? -161 : 5))
+    : null;
+  const fator = (() => {
+    const t = Number(f.trainWeek) || 0, c = (Number(f.cardioWeek) || 0) / 60, s = t + c;
+    return s <= 0.5 ? 1.2 : s <= 3 ? 1.375 : s <= 5 ? 1.55 : s <= 7 ? 1.725 : 1.9;
+  })();
+  const tdee = tmb ? Math.round(tmb * fator) : null;
+  const cutting = peso && Number(f.goalWeight) && Number(f.goalWeight) < peso;
+  const sug = tdee && peso ? (() => {
+    const kcal = cutting ? tdee - 500 : tdee;
+    const prot = Math.round(peso * 2), fat = Math.round(peso * 0.8);
+    return { kcal, prot, fat, carb: Math.max(0, Math.round((kcal - 4 * prot - 9 * fat) / 4)) };
+  })() : null;
+
+  const TOTAL = 4;
+  const canNext = step === 0 ? !!f.name.trim() : step === 1 ? !!(f.height && f.pesoAtual && f.goalWeight) : true;
+
+  const next = () => {
+    if (step === 2 && sug) {
+      setF((s) => ({
+        ...s,
+        kcalTarget: s.kcalTarget || String(sug.kcal),
+        protTarget: s.protTarget || String(sug.prot),
+        carbTarget: s.carbTarget || String(sug.carb),
+        fatTarget: s.fatTarget || String(sug.fat),
+      }));
+    }
+    setStep(step + 1);
+  };
+
+  const row2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 };
+  const row3 = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 };
+  const lbl = { ...S.label, marginBottom: 6 };
+
+  return (
+    <div className="fade-up" style={{ maxWidth: 480, margin: "0 auto" }}>
+      <div style={{ textAlign: "center", marginBottom: 18 }}>
+        <div style={{ fontFamily: font.display, fontSize: 24, textTransform: "uppercase", letterSpacing: 2, fontWeight: 700 }}>
+          Bora montar seu perfil 💪
+        </div>
+        <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>2 minutos e o app já trabalha pra você.</div>
+        <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 14 }}>
+          {Array.from({ length: TOTAL }, (_, i) => (
+            <div key={i} style={{
+              width: i === step ? 26 : 8, height: 8, borderRadius: 8, transition: "all .3s",
+              background: i <= step ? T.accent : "rgba(255,255,255,0.1)",
+            }} />
+          ))}
+        </div>
+      </div>
+
+      <ACard hot>
+        {step === 0 && (
+          <div className="fade-up" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={S.label}>Quem é você</div>
+            <div>
+              <div style={lbl}>Seu nome</div>
+              <input style={S.input} value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="Como te chamo?" autoFocus />
+            </div>
+            <div style={row2}>
+              <div>
+                <div style={lbl}>Idade</div>
+                <input style={S.input} type="number" value={f.age} onChange={(e) => set("age", e.target.value)} placeholder="anos" />
+              </div>
+              <div>
+                <div style={lbl}>Sexo</div>
+                <select style={S.input} value={f.sex} onChange={(e) => set("sex", e.target.value)}>
+                  <option value="M">Masculino</option>
+                  <option value="F">Feminino</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {step === 1 && (
+          <div className="fade-up" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={S.label}>Corpo e meta</div>
+            <div style={row3}>
+              <div>
+                <div style={lbl}>Altura (cm)</div>
+                <input style={S.input} type="number" value={f.height} onChange={(e) => set("height", e.target.value)} placeholder="cm" />
+              </div>
+              <div>
+                <div style={lbl}>Peso atual</div>
+                <input style={S.input} type="number" step="0.1" value={f.pesoAtual} onChange={(e) => set("pesoAtual", e.target.value)} placeholder="kg" />
+              </div>
+              <div>
+                <div style={lbl}>Meta (kg)</div>
+                <input style={S.input} type="number" step="0.1" value={f.goalWeight} onChange={(e) => set("goalWeight", e.target.value)} placeholder="kg" />
+              </div>
+            </div>
+            <p style={{ fontSize: 12, color: T.muted, margin: 0 }}>O peso atual já entra como primeiro registro do velocímetro na dash.</p>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="fade-up" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={S.label}>Sua rotina</div>
+            <div style={row2}>
+              <div>
+                <div style={lbl}>Treinos / semana</div>
+                <input style={S.input} type="number" value={f.trainWeek} onChange={(e) => set("trainWeek", e.target.value)} placeholder="ex: 5" />
+              </div>
+              <div>
+                <div style={lbl}>Cardio (min/sem)</div>
+                <input style={S.input} type="number" value={f.cardioWeek} onChange={(e) => set("cardioWeek", e.target.value)} placeholder="ex: 120" />
+              </div>
+            </div>
+            <div>
+              <div style={lbl}>Descanso entre séries (segundos)</div>
+              <input style={S.input} type="number" value={f.restTime} onChange={(e) => set("restTime", e.target.value)} placeholder="90" />
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="fade-up" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={S.label}>Metas do dia — calculadas pra você</div>
+            {tdee && (
+              <p style={{ fontSize: 12.5, color: T.muted, margin: 0, lineHeight: 1.6 }}>
+                Seu gasto estimado é <b style={{ color: T.text }}>{tdee} kcal/dia</b>.
+                {cutting ? " Pro corte, sugeri déficit de ~500 kcal com proteína alta. Ajusta se quiser:" : " Ajusta se quiser:"}
+              </p>
+            )}
+            <div style={row2}>
+              <div>
+                <div style={lbl}>Kcal/dia</div>
+                <input style={S.input} type="number" value={f.kcalTarget} onChange={(e) => set("kcalTarget", e.target.value)} />
+              </div>
+              <div>
+                <div style={lbl}>Proteína (g)</div>
+                <input style={S.input} type="number" value={f.protTarget} onChange={(e) => set("protTarget", e.target.value)} />
+              </div>
+            </div>
+            <div style={row2}>
+              <div>
+                <div style={lbl}>Carbo (g)</div>
+                <input style={S.input} type="number" value={f.carbTarget} onChange={(e) => set("carbTarget", e.target.value)} />
+              </div>
+              <div>
+                <div style={lbl}>Gordura (g)</div>
+                <input style={S.input} type="number" value={f.fatTarget} onChange={(e) => set("fatTarget", e.target.value)} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+          {step > 0 && <button style={S.btnGhost} onClick={() => setStep(step - 1)}>← Voltar</button>}
+          {step < TOTAL - 1 ? (
+            <BtnShimmer style={{ flex: 1, opacity: canNext ? 1 : 0.5 }} onClick={() => canNext && next()}>Próximo →</BtnShimmer>
+          ) : (
+            <BtnShimmer green style={{ flex: 1 }} onClick={() => onFinish(f)}>Concluir e começar 🔥</BtnShimmer>
+          )}
+        </div>
+        <button
+          style={{ background: "none", border: "none", color: T.muted, fontSize: 12, cursor: "pointer", width: "100%", marginTop: 10, padding: 6 }}
+          onClick={() => onFinish(f)}
+        >
+          Pular por agora
+        </button>
+      </ACard>
+    </div>
+  );
+}
+
 // ============ ÍCONES DA NAV (SVG stroke, estilo lucide) ============
 const NAV_ICONS = {
   dash: <><path d="m12 14 4-4" /><path d="M3.34 19a10 10 0 1 1 17.32 0" /></>,
@@ -1482,6 +1672,13 @@ export default function IronTrack({ user, onLogout }) {
     return () => clearTimeout(id);
   }, [rest]);
 
+  // banner some sozinho depois de 12s
+  useEffect(() => {
+    if (!banner) return;
+    const t = setTimeout(() => setBanner(null), 12000);
+    return () => clearTimeout(t);
+  }, [banner]);
+
   useEffect(() => {
     if (!data) return;
     const check = () => {
@@ -1514,6 +1711,25 @@ export default function IronTrack({ user, onLogout }) {
     const id = setInterval(check, 20000);
     return () => clearInterval(id);
   }, [data]);
+
+  const needsOnboarding = data !== null && !data.profile.onboarded && !data.profile.name;
+
+  const finishOnboarding = (f) => {
+    const today = todayStr();
+    update((d) => ({
+      ...d,
+      profile: {
+        ...d.profile,
+        onboarded: true,
+        name: f.name.trim(),
+        age: f.age, sex: f.sex, height: f.height,
+        startWeight: f.pesoAtual, goalWeight: f.goalWeight,
+        trainWeek: f.trainWeek, cardioWeek: f.cardioWeek, restTime: f.restTime || "90",
+        kcalTarget: f.kcalTarget, protTarget: f.protTarget, carbTarget: f.carbTarget, fatTarget: f.fatTarget,
+        weights: f.pesoAtual ? [{ date: today, peso: Number(f.pesoAtual) }] : d.profile.weights,
+      },
+    }));
+  };
 
   const tabs = [
     { id: "dash", label: "Dash" },
@@ -1631,7 +1847,7 @@ export default function IronTrack({ user, onLogout }) {
 
       {banner && (
         <div style={{
-          position: "fixed", top: 12, left: 12, right: 12, zIndex: 50,
+          position: "fixed", top: "calc(10px + env(safe-area-inset-top))", left: 12, right: 12, zIndex: 50,
           background: "rgba(20,24,31,0.97)", border: `1px solid ${T.accent}`, borderRadius: 14,
           padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start",
           boxShadow: "0 8px 40px rgba(245,165,36,0.2), 0 8px 30px rgba(0,0,0,0.5)",
@@ -1645,7 +1861,7 @@ export default function IronTrack({ user, onLogout }) {
         </div>
       )}
 
-      <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px 16px 104px", position: "relative", zIndex: 1 }}>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: "calc(16px + env(safe-area-inset-top)) 16px 104px", position: "relative", zIndex: 1 }}>
         <header style={{ marginBottom: 22, display: "flex", alignItems: "baseline", gap: 10 }}>
           <h1 style={{ fontFamily: font.display, fontSize: 28, margin: 0, textTransform: "uppercase", letterSpacing: 3, fontWeight: 700 }}>
             Iron<span style={{ color: T.accent, textShadow: "0 0 24px rgba(245,165,36,0.6)" }}>Track</span>
@@ -1655,6 +1871,8 @@ export default function IronTrack({ user, onLogout }) {
 
         {data === null ? (
           <div className="card" style={{ textAlign: "center", color: T.muted, padding: 40 }}>Carregando...</div>
+        ) : needsOnboarding ? (
+          <Onboarding onFinish={finishOnboarding} />
         ) : (
           <div key={tab} className="fade-up">
             {tab === "dash" && <TabDash data={data} update={update} />}
@@ -1689,6 +1907,7 @@ export default function IronTrack({ user, onLogout }) {
         </div>
       )}
 
+      {!needsOnboarding && (
       <nav style={{
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 40,
         background: "rgba(10,12,16,0.85)", backdropFilter: "blur(16px)",
@@ -1711,6 +1930,7 @@ export default function IronTrack({ user, onLogout }) {
           </button>
         ))}
       </nav>
+      )}
     </div>
   );
 }
