@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { loadRemote, saveRemote } from "../lib/storage";
+import { subscribePush } from "../lib/push";
 
 // ============ DESIGN TOKENS ============
 const T = {
@@ -114,6 +115,116 @@ function goalSuggestions(goal, tdee, peso) {
   const fat = Math.round(peso * g.fat);
   const carb = Math.max(0, Math.round((kcal - 4 * prot - 9 * fat) / 4));
   return { kcal, prot, fat, carb };
+}
+
+// Base de alimentos BR — valores médios por porção (referência TACO/tabelas públicas)
+// per: "100g" (qty em gramas) ou unidade/dose/etc (qty em unidades)
+const FOOD_DB = [
+  { n: "Frango grelhado (peito)", per: "100g", k: 165, p: 31, c: 0, g: 4 },
+  { n: "Frango sobrecoxa s/ pele", per: "100g", k: 178, p: 26, c: 0, g: 8 },
+  { n: "Patinho grelhado", per: "100g", k: 219, p: 33, c: 0, g: 9 },
+  { n: "Tilápia grelhada", per: "100g", k: 128, p: 26, c: 0, g: 3 },
+  { n: "Salmão grelhado", per: "100g", k: 208, p: 20, c: 0, g: 13 },
+  { n: "Atum em água (lata escorrida)", per: "lata", k: 110, p: 25, c: 0, g: 1 },
+  { n: "Ovo inteiro", per: "un", k: 72, p: 6, c: 0, g: 5 },
+  { n: "Clara de ovo", per: "un", k: 17, p: 4, c: 0, g: 0 },
+  { n: "Whey protein", per: "dose 30g", k: 120, p: 24, c: 3, g: 2 },
+  { n: "Arroz branco cozido", per: "100g", k: 128, p: 3, c: 28, g: 0 },
+  { n: "Arroz integral cozido", per: "100g", k: 124, p: 3, c: 26, g: 1 },
+  { n: "Feijão carioca cozido", per: "100g", k: 76, p: 5, c: 14, g: 1 },
+  { n: "Batata doce cozida", per: "100g", k: 77, p: 1, c: 18, g: 0 },
+  { n: "Batata inglesa cozida", per: "100g", k: 87, p: 2, c: 20, g: 0 },
+  { n: "Mandioca cozida", per: "100g", k: 125, p: 1, c: 30, g: 0 },
+  { n: "Macarrão cozido", per: "100g", k: 158, p: 6, c: 31, g: 1 },
+  { n: "Cuscuz de milho cozido", per: "100g", k: 113, p: 2, c: 25, g: 1 },
+  { n: "Tapioca (goma)", per: "100g", k: 240, p: 0, c: 60, g: 0 },
+  { n: "Aveia em flocos", per: "100g", k: 394, p: 14, c: 66, g: 8 },
+  { n: "Pão francês", per: "un", k: 150, p: 5, c: 29, g: 2 },
+  { n: "Pão de forma integral (fatia)", per: "fatia", k: 69, p: 4, c: 12, g: 1 },
+  { n: "Banana", per: "un", k: 89, p: 1, c: 23, g: 0 },
+  { n: "Maçã", per: "un", k: 95, p: 1, c: 25, g: 0 },
+  { n: "Mamão papaia", per: "100g", k: 40, p: 1, c: 10, g: 0 },
+  { n: "Abacate", per: "100g", k: 96, p: 1, c: 6, g: 8 },
+  { n: "Azeite de oliva", per: "colher", k: 117, p: 0, c: 0, g: 13 },
+  { n: "Pasta de amendoim", per: "colher", k: 90, p: 4, c: 2, g: 8 },
+  { n: "Queijo mussarela (fatia)", per: "fatia", k: 64, p: 4, c: 1, g: 5 },
+  { n: "Queijo cottage", per: "100g", k: 98, p: 11, c: 3, g: 4 },
+  { n: "Peito de peru (fatia)", per: "fatia", k: 22, p: 4, c: 0, g: 0 },
+  { n: "Leite integral", per: "copo 200ml", k: 120, p: 6, c: 9, g: 7 },
+  { n: "Leite desnatado", per: "copo 200ml", k: 70, p: 7, c: 10, g: 0 },
+  { n: "Iogurte natural", per: "100g", k: 51, p: 4, c: 4, g: 2 },
+  { n: "Iogurte grego zero", per: "100g", k: 59, p: 10, c: 4, g: 0 },
+  { n: "Brócolis cozido", per: "100g", k: 25, p: 2, c: 4, g: 0 },
+  { n: "Legumes/salada", per: "100g", k: 25, p: 2, c: 5, g: 0 },
+  { n: "Mel", per: "colher", k: 61, p: 0, c: 17, g: 0 },
+  { n: "Pão de queijo", per: "un", k: 95, p: 3, c: 11, g: 5 },
+  { n: "Pizza (fatia)", per: "fatia", k: 280, p: 11, c: 33, g: 11 },
+  { n: "Hambúrguer artesanal", per: "un", k: 550, p: 28, c: 40, g: 30 },
+  { n: "Coxinha", per: "un", k: 280, p: 8, c: 30, g: 14 },
+  { n: "Açaí com granola", per: "copo 300ml", k: 420, p: 4, c: 80, g: 10 },
+];
+
+// Divisões de treino prontas
+const WORKOUT_TEMPLATES = [
+  {
+    name: "ABC Clássico", desc: "3x/semana — a divisão mais usada do Brasil",
+    days: [
+      { name: "A — Peito e Tríceps", exercises: [["Supino reto", 4], ["Supino inclinado", 3], ["Crucifixo", 3], ["Tríceps corda", 3], ["Tríceps testa", 3]] },
+      { name: "B — Costas e Bíceps", exercises: [["Puxada frente", 4], ["Remada curvada", 3], ["Remada baixa", 3], ["Rosca direta", 3], ["Rosca martelo", 3]] },
+      { name: "C — Perna e Ombro", exercises: [["Agachamento livre", 4], ["Leg press", 3], ["Cadeira extensora", 3], ["Mesa flexora", 3], ["Desenvolvimento halteres", 3], ["Elevação lateral", 3]] },
+    ],
+  },
+  {
+    name: "Push / Pull / Legs", desc: "3 a 6x/semana — empurra, puxa, perna",
+    days: [
+      { name: "Push — Empurrar", exercises: [["Supino reto", 4], ["Desenvolvimento militar", 3], ["Supino inclinado", 3], ["Elevação lateral", 3], ["Tríceps corda", 3]] },
+      { name: "Pull — Puxar", exercises: [["Barra fixa", 4], ["Remada curvada", 4], ["Puxada frente", 3], ["Rosca direta", 3], ["Face pull", 3]] },
+      { name: "Legs — Perna", exercises: [["Agachamento livre", 4], ["Leg press", 3], ["Stiff", 3], ["Cadeira extensora", 3], ["Panturrilha em pé", 4]] },
+    ],
+  },
+  {
+    name: "Upper / Lower", desc: "4x/semana — superior e inferior alternados",
+    days: [
+      { name: "Upper — Superior", exercises: [["Supino reto", 4], ["Remada curvada", 4], ["Desenvolvimento halteres", 3], ["Puxada frente", 3], ["Rosca direta", 2], ["Tríceps corda", 2]] },
+      { name: "Lower — Inferior", exercises: [["Agachamento livre", 4], ["Stiff", 3], ["Leg press", 3], ["Panturrilha em pé", 4], ["Abdominal supra", 3]] },
+    ],
+  },
+  {
+    name: "ABCDE", desc: "5x/semana — um grupo por dia, volume máximo",
+    days: [
+      { name: "A — Peito", exercises: [["Supino reto", 4], ["Supino inclinado", 4], ["Crucifixo", 3], ["Cross-over", 3]] },
+      { name: "B — Costas", exercises: [["Barra fixa", 4], ["Remada curvada", 4], ["Puxada frente", 3], ["Remada baixa", 3]] },
+      { name: "C — Ombro", exercises: [["Desenvolvimento militar", 4], ["Elevação lateral", 4], ["Elevação frontal", 3], ["Crucifixo inverso", 3]] },
+      { name: "D — Braços", exercises: [["Rosca direta", 4], ["Rosca martelo", 3], ["Tríceps testa", 4], ["Tríceps corda", 3]] },
+      { name: "E — Perna", exercises: [["Agachamento livre", 4], ["Leg press", 4], ["Cadeira extensora", 3], ["Mesa flexora", 3], ["Panturrilha em pé", 4]] },
+    ],
+  },
+  {
+    name: "Full Body", desc: "3x/semana — corpo inteiro, ótimo pra começar",
+    days: [
+      { name: "Full Body", exercises: [["Agachamento livre", 3], ["Supino reto", 3], ["Remada curvada", 3], ["Desenvolvimento halteres", 3], ["Rosca direta", 2], ["Tríceps corda", 2]] },
+    ],
+  },
+];
+
+// Ritmo da variação de peso vs objetivo
+function ritmoMeta(goal, diff) {
+  if (diff == null || !goal) return null;
+  const d = Number(diff);
+  if (goal === "cutting") {
+    if (d <= -1.2) return { color: T.red, text: `⚠️ −${Math.abs(d)}kg na semana — rápido demais, risco de perder massa. Sobe ~200 kcal.` };
+    if (d <= -0.3) return { color: T.green, text: `✓ −${Math.abs(d)}kg na semana — ritmo perfeito de corte.` };
+    if (d <= 0.1) return { color: T.accent, text: "Peso travado — segura o plano mais uns dias ou corta ~150 kcal." };
+    return { color: T.red, text: `⚠️ +${d}kg na semana em pleno corte — revisa o déficit e os "hoje comi".` };
+  }
+  if (goal === "bulking") {
+    if (d >= 0.7) return { color: T.red, text: `⚠️ +${d}kg na semana — rápido demais, metade vira gordura. Corta ~200 kcal.` };
+    if (d >= 0.2) return { color: T.green, text: `✓ +${d}kg na semana — bulking limpo.` };
+    if (d >= -0.1) return { color: T.accent, text: "Peso parado — sobe ~150 kcal pra crescer." };
+    return { color: T.red, text: `⚠️ ${d}kg na semana — isso é déficit, não bulking. Come mais.` };
+  }
+  if (Math.abs(d) <= 0.3) return { color: T.green, text: "✓ Peso estável — manutenção em dia." };
+  return { color: T.accent, text: `${d > 0 ? "+" : ""}${d}kg na semana — ajusta ~150 kcal pra voltar ao estável.` };
 }
 
 const exDoneToday = (data, exId) => (data.logs[exId] || []).some((h) => h.date === todayStr());
@@ -455,6 +566,11 @@ function TabDash({ data, update }) {
   const removeCardio = (id) => {
     update((d) => ({ ...d, cardio: { ...d.cardio, [today]: (d.cardio[today] || []).filter((c) => c.id !== id) } }));
   };
+  const addPickedFree = (it) => {
+    update((d) => ({
+      ...d, freeFoods: { ...d.freeFoods, [today]: [...(d.freeFoods[today] || []), { id: uid(), food: `${it.food} (${it.qty})`, kcal: String(it.kcal), prot: String(it.prot), carb: String(it.carb), fat: String(it.fat) }] },
+    }));
+  };
 
   // metas e consumo
   const plan = planTotals(data);
@@ -485,6 +601,7 @@ function TabDash({ data, update }) {
 
   const todayWorkouts = data.workouts.map((w) => ({ w, pct: workoutProgress(data, w) })).filter((x) => x.pct > 0);
   const freeList = data.freeFoods[today] || [];
+  const ritmo = ritmoMeta(p.goal, weekDiff);
 
   // streak + visão semanal
   const streak = calcStreak(data);
@@ -571,14 +688,25 @@ function TabDash({ data, update }) {
       </Card>
 
       {/* STATS */}
-      <Card style={{ marginBottom: 14, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-        <Stat label="Treinos / 7d" value={trainDays} sub={trainDays >= 4 ? "Constância 🔥" : "Bora subir"} />
-        <Stat
-          label="Kcal restantes" value={kcalLeft != null ? (over ? `${kcalLeft}` : kcalLeft) : "—"}
-          color={kcalLeft == null ? T.text : over ? T.red : kcalLeft < (kcalTarget || 1) * 0.15 ? T.accent : T.green}
-          sub={kcalTarget ? `meta ${kcalTarget}` : "defina no perfil"}
-        />
-        <Stat label="Variação 7d" value={weekDiff !== null ? `${weekDiff > 0 ? "+" : ""}${weekDiff}kg` : "—"} />
+      <Card style={{ marginBottom: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <Stat label="Treinos / 7d" value={trainDays} sub={trainDays >= 4 ? "Constância 🔥" : "Bora subir"} />
+          <Stat
+            label="Kcal restantes" value={kcalLeft != null ? (over ? `${kcalLeft}` : kcalLeft) : "—"}
+            color={kcalLeft == null ? T.text : over ? T.red : kcalLeft < (kcalTarget || 1) * 0.15 ? T.accent : T.green}
+            sub={kcalTarget ? `meta ${kcalTarget}` : "defina no perfil"}
+          />
+          <Stat label="Variação 7d" value={weekDiff !== null ? `${weekDiff > 0 ? "+" : ""}${weekDiff}kg` : "—"} />
+        </div>
+        {ritmo && (
+          <div style={{
+            marginTop: 12, padding: "10px 12px", borderRadius: 10, fontSize: 12.5, lineHeight: 1.5,
+            background: "rgba(255,255,255,0.04)", border: `1px solid ${T.border}`,
+            color: ritmo.color, fontWeight: 600,
+          }}>
+            {ritmo.text}
+          </div>
+        )}
       </Card>
 
       {/* DIETA DO DIA + REBALANCEAMENTO */}
@@ -615,6 +743,7 @@ function TabDash({ data, update }) {
         {/* HOJE COMI... */}
         <div style={{ marginTop: 14, borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
           <div style={{ ...S.label, marginBottom: 8 }}>Hoje comi... (fora do plano)</div>
+          <FoodPicker onAdd={addPickedFree} />
           {freeList.map((f) => (
             <div key={f.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "4px 0", color: T.text }}>
               <span>{f.food}</span>
@@ -722,6 +851,21 @@ function TabTreino({ data, update, startRest }) {
   const [openDay, setOpenDay] = useState(null);
   const [newDay, setNewDay] = useState("");
   const [showAddDay, setShowAddDay] = useState(false);
+  const [showTpl, setShowTpl] = useState(false);
+
+  const applyTemplate = (tpl) => {
+    update((d) => ({
+      ...d,
+      workouts: [
+        ...d.workouts,
+        ...tpl.days.map((day) => ({
+          id: uid(), name: day.name,
+          exercises: day.exercises.map(([n, s]) => ({ id: uid(), name: n, sets: s })),
+        })),
+      ],
+    }));
+    setShowTpl(false);
+  };
 
   const addDay = () => {
     if (!newDay.trim()) return;
@@ -739,7 +883,36 @@ function TabTreino({ data, update, startRest }) {
 
   return (
     <div>
-      <SectionTitle action={<BtnShimmer onClick={() => setShowAddDay(!showAddDay)}>+ Treino</BtnShimmer>}>Meus Treinos</SectionTitle>
+      <SectionTitle action={
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={S.btnGhost} onClick={() => { setShowTpl(!showTpl); setShowAddDay(false); }}>📋 Template</button>
+          <BtnShimmer onClick={() => { setShowAddDay(!showAddDay); setShowTpl(false); }}>+ Treino</BtnShimmer>
+        </div>
+      }>Meus Treinos</SectionTitle>
+
+      {showTpl && (
+        <ACard style={{ marginBottom: 14 }}>
+          <div style={{ ...S.label, marginBottom: 10 }}>Divisões prontas — um toque e tá montado</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {WORKOUT_TEMPLATES.map((tpl) => (
+              <button
+                key={tpl.name}
+                onClick={() => applyTemplate(tpl)}
+                style={{
+                  textAlign: "left", padding: "12px 14px", borderRadius: 12, cursor: "pointer",
+                  background: "rgba(255,255,255,0.04)", border: `1px solid ${T.border}`,
+                  color: T.text, fontFamily: font.body, transition: "all .2s",
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 14 }}>
+                  {tpl.name} <span style={{ color: T.muted, fontWeight: 400, fontSize: 12 }}>· {tpl.days.length} treino{tpl.days.length > 1 ? "s" : ""}</span>
+                </div>
+                <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{tpl.desc}</div>
+              </button>
+            ))}
+          </div>
+        </ACard>
+      )}
 
       {showAddDay && (
         <Card style={{ marginBottom: 14, display: "flex", gap: 8 }}>
@@ -1124,6 +1297,75 @@ function TabDieta({ data, update }) {
   );
 }
 
+// ============ BUSCA DE ALIMENTOS (base BR) ============
+function FoodPicker({ onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(null);
+  const [qty, setQty] = useState("");
+
+  const results = (q.trim()
+    ? FOOD_DB.filter((f) => f.n.toLowerCase().includes(q.trim().toLowerCase()))
+    : FOOD_DB
+  ).slice(0, 8);
+
+  const factor = sel ? (sel.per === "100g" ? (Number(qty) || 0) / 100 : Number(qty) || 0) : 0;
+  const calc = sel ? {
+    kcal: Math.round(sel.k * factor),
+    prot: Math.round(sel.p * factor),
+    carb: Math.round(sel.c * factor),
+    fat: Math.round(sel.g * factor),
+  } : null;
+
+  const confirmAdd = () => {
+    if (!sel || !Number(qty)) return;
+    onAdd({ food: sel.n, qty: sel.per === "100g" ? `${qty}g` : `${qty} ${sel.per}`, ...calc });
+    setSel(null); setQty(""); setQ(""); setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <button className="chip" style={{ background: T.accentSoft, color: T.accent, borderColor: "rgba(245,165,36,0.35)", marginBottom: 8 }} onClick={() => setOpen(true)}>
+        🔍 Buscar alimento (base BR)
+      </button>
+    );
+  }
+
+  return (
+    <div className="fade-up" style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${T.border}`, borderRadius: 12, padding: 12, marginBottom: 10 }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        <input style={S.input} placeholder="Ex: frango, arroz, whey..." value={q} onChange={(e) => { setQ(e.target.value); setSel(null); }} autoFocus />
+        <button style={{ ...S.btnGhost, padding: "6px 10px" }} onClick={() => { setOpen(false); setSel(null); setQ(""); }}>✕</button>
+      </div>
+      {!sel && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {results.map((f) => (
+            <button key={f.n} className="chip" style={{ background: T.cardSoft, color: T.text, borderColor: T.border, fontSize: 12 }}
+              onClick={() => { setSel(f); setQty(f.per === "100g" ? "100" : "1"); }}>
+              {f.n}
+            </button>
+          ))}
+          {results.length === 0 && <span style={{ fontSize: 12, color: T.muted }}>Nada encontrado — adiciona manual embaixo.</span>}
+        </div>
+      )}
+      {sel && (
+        <div className="fade-up">
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+            {sel.n} <span style={{ color: T.muted, fontWeight: 400 }}>· por {sel.per}</span>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input style={{ ...S.input, width: 90 }} type="number" value={qty} onChange={(e) => setQty(e.target.value)} autoFocus />
+            <span style={{ fontSize: 12, color: T.muted, flex: 1 }}>
+              {sel.per === "100g" ? "g" : sel.per} → <b style={{ color: T.text }}>{calc.kcal} kcal · {calc.prot}P/{calc.carb}C/{calc.fat}G</b>
+            </span>
+            <BtnShimmer style={{ padding: "10px 14px" }} onClick={confirmAdd}>+</BtnShimmer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MealCard({ meal, checked, onToggle, update, onRemove }) {
   const [expanded, setExpanded] = useState(false);
   const [food, setFood] = useState("");
@@ -1145,6 +1387,12 @@ function MealCard({ meal, checked, onToggle, update, onRemove }) {
   };
   const setTime = (time) => {
     update((d) => ({ ...d, diet: d.diet.map((m) => (m.id === meal.id ? { ...m, time } : m)) }));
+  };
+  const addPicked = (it) => {
+    update((d) => ({
+      ...d,
+      diet: d.diet.map((m) => (m.id === meal.id ? { ...m, items: [...m.items, { id: uid(), food: it.food, qty: it.qty, kcal: String(it.kcal), prot: String(it.prot), carb: String(it.carb), fat: String(it.fat) }] } : m)),
+    }));
   };
 
   const t = sumItems(meal.items);
@@ -1193,7 +1441,10 @@ function MealCard({ meal, checked, onToggle, update, onRemove }) {
               </span>
             </div>
           ))}
-          <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+          <div style={{ marginTop: 10 }}>
+            <FoodPicker onAdd={addPicked} />
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <input style={{ ...S.input, flex: "2 1 130px" }} placeholder="Alimento" value={food} onChange={(e) => setFood(e.target.value)} />
             <input style={{ ...S.input, flex: "1 1 80px" }} placeholder="Qtd (ex: 150g)" value={qty} onChange={(e) => setQty(e.target.value)} />
             <input style={{ ...S.input, flex: "1 1 60px" }} type="number" placeholder="kcal" value={kcal} onChange={(e) => setKcal(e.target.value)} />
@@ -1278,7 +1529,7 @@ function PField({ label, value, onChange, type = "number", placeholder, step }) 
   );
 }
 
-function TabPerfil({ data, update, onLogout, userEmail }) {
+function TabPerfil({ data, update, onLogout, userEmail, userId }) {
   const p = data.profile;
   const [notifStatus, setNotifStatus] = useState(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
 
@@ -1300,8 +1551,16 @@ function TabPerfil({ data, update, onLogout, userEmail }) {
     try {
       const perm = await Notification.requestPermission();
       setNotifStatus(perm);
-      if (perm === "granted") notifyUser("IronTrack 💪", "Notificações ativadas! Vou te cobrar nos horários certos.");
-    } catch { setNotifStatus("denied"); }
+      if (perm !== "granted") return;
+      const res = await subscribePush(userId);
+      if (res.ok) {
+        notifyUser("IronTrack 💪", "Push ativado! Te aviso mesmo com o app fechado.");
+      } else {
+        notifyUser("IronTrack 💪", "Notificações locais ativas. Pro push com app fechado, configure as VAPID keys (README).");
+      }
+    } catch {
+      setNotifStatus(typeof Notification !== "undefined" ? Notification.permission : "denied");
+    }
   };
 
   const MEDIDAS = [
@@ -1438,7 +1697,7 @@ function TabPerfil({ data, update, onLogout, userEmail }) {
           {notifStatus === "granted" ? "✓ Notificações do navegador ativas" : "Ativar notificações do navegador"}
         </BtnShimmer>
         <p style={{ fontSize: 11.5, color: T.muted, marginTop: 10, marginBottom: 0, lineHeight: 1.5 }}>
-          Avisos de refeição e treino disparam com o app aberto (banner + notificação do navegador). Push com app fechado exige PWA com service worker, estilo TioTrack.
+          Com o push ativo, os avisos de refeição e treino chegam mesmo com o app fechado (iOS 16.4+, app instalado na tela de início). Requer VAPID keys + edge function configuradas — passo a passo no README.
         </p>
       </Card>
 
@@ -1940,7 +2199,7 @@ export default function IronTrack({ user, onLogout }) {
             {tab === "treino" && <TabTreino data={data} update={update} startRest={startRest} />}
             {tab === "dieta" && <TabDieta data={data} update={update} />}
             {tab === "diario" && <TabDiario data={data} update={update} />}
-            {tab === "perfil" && <TabPerfil data={data} update={update} onLogout={onLogout} userEmail={user?.email} />}
+            {tab === "perfil" && <TabPerfil data={data} update={update} onLogout={onLogout} userEmail={user?.email} userId={user?.id} />}
           </div>
         )}
       </div>

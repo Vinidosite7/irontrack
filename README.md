@@ -45,8 +45,31 @@ Depois `vercel --prod`.
 - **Notificações** de refeição/treino disparam com o app aberto. Push real com app fechado = fase 2: Web Push com VAPID + handler no `sw.js` (iOS 16.4+, app instalado na home). O esqueleto do listener já tá comentado no `sw.js`.
 - Multi-dispositivo funciona (dados na nuvem), mas sem merge: vale o último que salvou.
 
+## Push com app fechado (v2) — setup
+
+1. **Gerar VAPID keys** (uma vez):
+   ```bash
+   npx web-push generate-vapid-keys
+   ```
+2. **Client**: coloca a public key no `.env.local` e na Vercel:
+   `NEXT_PUBLIC_VAPID_PUBLIC_KEY=...` → redeploy.
+3. **Tabela**: roda `supabase/push.sql` (parte 1) no SQL Editor.
+4. **Edge Function** (precisa do [Supabase CLI](https://supabase.com/docs/guides/cli)):
+   ```bash
+   supabase login
+   supabase link --project-ref SEU-PROJETO
+   supabase secrets set VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJECT=mailto:voce@email.com CRON_SECRET=um-segredo-forte
+   supabase functions deploy send-reminders --no-verify-jwt
+   ```
+5. **Cron**: roda a parte 2 do `push.sql` (troca a URL do projeto e o CRON_SECRET). A função roda a cada minuto e só envia quando bate horário de refeição/treino não cumprido.
+6. **No iPhone**: app instalado pela tela de início (iOS 16.4+) → Perfil → "Ativar notificações". Pronto: push chega com o app fechado.
+
+Teste manual da função:
+```bash
+curl -X POST https://SEU-PROJETO.supabase.co/functions/v1/send-reminders -H "x-cron-secret: SEU_CRON_SECRET"
+```
+
 ## Fase 2 (backlog)
-- Web Push (lembretes com app fechado)
 - Exportar/importar backup JSON
 - Histórico de medidas com data + gráfico
 - Base de alimentos BR
