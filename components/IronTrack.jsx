@@ -90,15 +90,21 @@ const calcTMB = (p, peso) => {
   if (!peso || !h || !a) return null;
   return Math.round(10 * peso + 6.25 * h - 5 * a + (p.sex === "F" ? -161 : 5));
 };
+// Fator de atividade sobre a TMB (Mifflin-St Jeor). O "resto do dia" da
+// maioria de quem treina forte é sentado (trabalho de escritório) — treino
+// pesado não muda isso. Por isso o teto pra rotina normal é 1.725 (muito
+// ativo); 1.9 (extra ativo) fica reservado pra trabalho braçal ou 2 treinos
+// por dia, que aqui é sinalizado por sessions > 10 (ex: 2x/dia quase todo dia).
 const activityFactor = (p) => {
   const t = Number(p.trainWeek) || 0;
   const c = (Number(p.cardioWeek) || 0) / 60; // horas de cardio/semana
   const sessions = t + c;
-  if (sessions <= 0.5) return 1.2;
-  if (sessions <= 3) return 1.375;
-  if (sessions <= 5) return 1.55;
-  if (sessions <= 7) return 1.725;
-  return 1.9;
+  if (sessions <= 0.5) return 1.2;   // sedentário, sem treino
+  if (sessions <= 2) return 1.3;     // treino leve/ocasional
+  if (sessions <= 4) return 1.45;    // treino moderado
+  if (sessions <= 6) return 1.55;    // treino consistente (ex: 5x força)
+  if (sessions <= 10) return 1.725;  // treino forte + cardio diário — teto pra rotina de escritório
+  return 1.9;                        // trabalho físico ou 2 treinos/dia
 };
 // Objetivos — faixas do consenso da musculação natural (proteína alta,
 // gordura mínima saudável, carbo fechando a conta calórica)
@@ -877,6 +883,16 @@ function TabTreino({ data, update, startRest }) {
     update((d) => ({ ...d, workouts: d.workouts.filter((w) => w.id !== id) }));
     if (openDay === id) setOpenDay(null);
   };
+  const moveDay = (id, dir) => {
+    update((d) => {
+      const i = d.workouts.findIndex((w) => w.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= d.workouts.length) return d;
+      const arr = d.workouts.slice();
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+      return { ...d, workouts: arr };
+    });
+  };
 
   const day = data.workouts.find((w) => w.id === openDay);
   if (day) return <DayView day={day} data={data} update={update} onBack={() => setOpenDay(null)} startRest={startRest} />;
@@ -930,7 +946,7 @@ function TabTreino({ data, update, startRest }) {
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {data.workouts.map((w) => {
+        {data.workouts.map((w, idx) => {
           const pct = workoutProgress(data, w);
           const started = pct > 0;
           return (
@@ -946,8 +962,20 @@ function TabTreino({ data, update, startRest }) {
                     {w.exercises.length} exercício{w.exercises.length !== 1 ? "s" : ""}{started && ` · ${Math.round(pct * 100)}% hoje`}
                   </div>
                 </div>
-                <button style={{ ...S.btnGhost, padding: "6px 10px", color: T.red, borderColor: "transparent" }}
-                  onClick={(e) => { e.stopPropagation(); removeDay(w.id); }}>✕</button>
+                <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+                  <button
+                    style={{ ...S.btnGhost, padding: "6px 9px", borderColor: "transparent", color: T.muted, opacity: idx === 0 ? 0.3 : 1 }}
+                    disabled={idx === 0}
+                    onClick={(e) => { e.stopPropagation(); moveDay(w.id, -1); }}
+                  >↑</button>
+                  <button
+                    style={{ ...S.btnGhost, padding: "6px 9px", borderColor: "transparent", color: T.muted, opacity: idx === data.workouts.length - 1 ? 0.3 : 1 }}
+                    disabled={idx === data.workouts.length - 1}
+                    onClick={(e) => { e.stopPropagation(); moveDay(w.id, 1); }}
+                  >↓</button>
+                  <button style={{ ...S.btnGhost, padding: "6px 10px", color: T.red, borderColor: "transparent" }}
+                    onClick={(e) => { e.stopPropagation(); removeDay(w.id); }}>✕</button>
+                </div>
               </div>
               {started && <div style={{ marginTop: 10 }}><ProgressBar pct={pct} height={6} /></div>}
             </Card>
