@@ -1600,11 +1600,22 @@ function TabDiario({ data, update }) {
 }
 
 // ============ PERFIL ============
-function PField({ label, value, onChange, type = "number", placeholder, step }) {
+// Remove tudo que não for dígito ou "-" — usado nos campos que só fazem
+// sentido como número inteiro (kcal, proteína, carbo, gordura). Evita a
+// armadilha clássica: digitar "2.255" pensando em separador de milhar e o
+// JS interpretar como 2,255 (decimal), destruindo o cálculo do dia.
+const digitsOnly = (v) => v.replace(/[^\d-]/g, "");
+
+function PField({ label, value, onChange, type = "number", placeholder, step, integer }) {
   return (
     <div>
       <div style={{ ...S.label, marginBottom: 6 }}>{label}</div>
-      <input style={S.input} type={type} step={step} placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+      <input
+        style={S.input} type={type} step={step} placeholder={placeholder}
+        inputMode={integer ? "numeric" : undefined}
+        value={value}
+        onChange={(e) => onChange(integer ? digitsOnly(e.target.value) : e.target.value)}
+      />
     </div>
   );
 }
@@ -1646,6 +1657,21 @@ function TabPerfil({ data, update, onLogout, userEmail, userId, onDeleteAccount 
 
   const setField = (field, value) => update((d) => ({ ...d, profile: { ...d.profile, [field]: value } }));
   const setMedida = (field, value) => update((d) => ({ ...d, profile: { ...d.profile, medidas: { ...d.profile.medidas, [field]: value } } }));
+
+  // Auto-corrige metas salvas com "." ou "," (bug de digitação tipo "2.255" virando 2,255).
+  // Roda uma vez ao abrir o Perfil e silenciosamente conserta o valor.
+  useEffect(() => {
+    const fields = ["kcalTarget", "protTarget", "carbTarget", "fatTarget"];
+    const fixed = {};
+    fields.forEach((k) => {
+      const v = data.profile[k];
+      if (v && /[.,]/.test(String(v))) fixed[k] = digitsOnly(String(v));
+    });
+    if (Object.keys(fixed).length) {
+      update((d) => ({ ...d, profile: { ...d.profile, ...fixed } }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const peso = currentWeight(p) || Number(p.startWeight) || null;
   const imc = calcIMC(peso, Number(p.height));
@@ -1724,12 +1750,12 @@ function TabPerfil({ data, update, onLogout, userEmail, userId, onDeleteAccount 
           <PField label="Cardio (min/sem)" value={p.cardioWeek} onChange={(v) => setField("cardioWeek", v)} placeholder="ex: 120" />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <PField label="Meta kcal/dia" value={p.kcalTarget} onChange={(v) => setField("kcalTarget", v)} placeholder={sugKcal ? `sugestão: ${sugKcal}` : "kcal"} />
-          <PField label="Meta proteína/dia" value={p.protTarget} onChange={(v) => setField("protTarget", v)} placeholder={sugProt ? `sugestão: ${sugProt}g` : "g"} />
+          <PField integer label="Meta kcal/dia" value={p.kcalTarget} onChange={(v) => setField("kcalTarget", v)} placeholder={sugKcal ? `sugestão: ${sugKcal}` : "kcal"} />
+          <PField integer label="Meta proteína/dia" value={p.protTarget} onChange={(v) => setField("protTarget", v)} placeholder={sugProt ? `sugestão: ${sugProt}g` : "g"} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <PField label="Meta carbo/dia" value={p.carbTarget} onChange={(v) => setField("carbTarget", v)} placeholder={sugCarb ? `sugestão: ${sugCarb}g` : "g"} />
-          <PField label="Meta gordura/dia" value={p.fatTarget} onChange={(v) => setField("fatTarget", v)} placeholder={sugFat ? `sugestão: ${sugFat}g` : "g"} />
+          <PField integer label="Meta carbo/dia" value={p.carbTarget} onChange={(v) => setField("carbTarget", v)} placeholder={sugCarb ? `sugestão: ${sugCarb}g` : "g"} />
+          <PField integer label="Meta gordura/dia" value={p.fatTarget} onChange={(v) => setField("fatTarget", v)} placeholder={sugFat ? `sugestão: ${sugFat}g` : "g"} />
         </div>
         {sugKcal && sugProt && (
           <button
@@ -2045,21 +2071,21 @@ function Onboarding({ onFinish }) {
             <div style={row2}>
               <div>
                 <div style={lbl}>Kcal/dia</div>
-                <input style={S.input} type="number" value={f.kcalTarget} onChange={(e) => set("kcalTarget", e.target.value)} />
+                <input style={S.input} type="number" inputMode="numeric" value={f.kcalTarget} onChange={(e) => set("kcalTarget", digitsOnly(e.target.value))} />
               </div>
               <div>
                 <div style={lbl}>Proteína (g)</div>
-                <input style={S.input} type="number" value={f.protTarget} onChange={(e) => set("protTarget", e.target.value)} />
+                <input style={S.input} type="number" inputMode="numeric" value={f.protTarget} onChange={(e) => set("protTarget", digitsOnly(e.target.value))} />
               </div>
             </div>
             <div style={row2}>
               <div>
                 <div style={lbl}>Carbo (g)</div>
-                <input style={S.input} type="number" value={f.carbTarget} onChange={(e) => set("carbTarget", e.target.value)} />
+                <input style={S.input} type="number" inputMode="numeric" value={f.carbTarget} onChange={(e) => set("carbTarget", digitsOnly(e.target.value))} />
               </div>
               <div>
                 <div style={lbl}>Gordura (g)</div>
-                <input style={S.input} type="number" value={f.fatTarget} onChange={(e) => set("fatTarget", e.target.value)} />
+                <input style={S.input} type="number" inputMode="numeric" value={f.fatTarget} onChange={(e) => set("fatTarget", digitsOnly(e.target.value))} />
               </div>
             </div>
           </div>
