@@ -20,15 +20,21 @@ npm run dev
 Abre http://localhost:3000, cria sua conta e testa.
 
 ### 3. Deploy na Vercel
-```bash
-npm i -g vercel   # se ainda não tiver
-vercel
-```
-No dashboard da Vercel (ou via `vercel env add`), adiciona as duas variáveis:
+Importa o repo em [vercel.com/new](https://vercel.com/new) (detecta Next.js sozinho) e adiciona as envs antes do deploy:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` (Project Settings > API > service_role — **sem** prefixo NEXT_PUBLIC, é só server-side)
+- `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (se for configurar o push agora — ver seção abaixo)
 
-Depois `vercel --prod`.
+Depois de conectado, `git push` já deploya sozinho. Pra forçar manual: `vercel --prod`.
+
+### 4. Recuperação de senha (opcional, recomendado)
+1. Supabase Dashboard → Authentication → Providers → Email → ativa **"Confirm email"** se quiser confirmação de cadastro também.
+2. Authentication → URL Configuration → **Site URL** = tua URL de produção (ex: `https://irontrack.vercel.app`). É pra onde o link de redefinição/confirmação manda o usuário.
+3. O e-mail nativo do Supabase é limitado (uso só de dev). Pra produção, configura SMTP customizado em Authentication → SMTP Settings — recomendo [Resend](https://resend.com) (free tier generoso, 5 min de setup).
+4. Authentication → Email Templates → traduz os templates pra PT-BR se quiser (vêm em inglês).
+
+O fluxo "Esqueci minha senha" na tela de login e a página `/reset-password` já estão prontos — só depende do SMTP estar configurado pra o e-mail chegar.
 
 ### 4. Instalar no iPhone
 1. Abre a URL de produção **no Safari** (tem que ser Safari).

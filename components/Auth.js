@@ -8,13 +8,29 @@ const T = {
 };
 
 export default function Auth() {
-  const [mode, setMode] = useState("login"); // login | signup
+  const [mode, setMode] = useState("login"); // login | signup | forgot
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [msg, setMsg] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
+    if (mode === "forgot") {
+      if (!email.trim()) return setMsg({ type: "err", text: "Digita seu e-mail." });
+      setLoading(true);
+      setMsg(null);
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined,
+        });
+        if (error) setMsg({ type: "err", text: "Não consegui enviar: " + error.message });
+        else setMsg({ type: "ok", text: "Se esse e-mail tiver uma conta, o link de redefinição já foi enviado. Confere a caixa de entrada (e o spam)." });
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (!email.trim() || !pass) return setMsg({ type: "err", text: "Preenche e-mail e senha." });
     setLoading(true);
     setMsg(null);
@@ -73,11 +89,14 @@ export default function Auth() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <input style={input} type="email" placeholder="E-mail" value={email}
-            onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
-          <input style={input} type="password" placeholder="Senha" value={pass}
-            onChange={(e) => setPass(e.target.value)}
-            autoComplete={mode === "login" ? "current-password" : "new-password"}
-            onKeyDown={(e) => e.key === "Enter" && submit()} />
+            onChange={(e) => setEmail(e.target.value)} autoComplete="email"
+            onKeyDown={(e) => e.key === "Enter" && mode === "forgot" && submit()} />
+          {mode !== "forgot" && (
+            <input style={input} type="password" placeholder="Senha" value={pass}
+              onChange={(e) => setPass(e.target.value)}
+              autoComplete={mode === "login" ? "current-password" : "new-password"}
+              onKeyDown={(e) => e.key === "Enter" && submit()} />
+          )}
 
           {msg && (
             <div style={{
@@ -94,14 +113,23 @@ export default function Auth() {
             padding: "13px 18px", fontWeight: 800, fontSize: 14, cursor: "pointer",
             boxShadow: "0 4px 18px rgba(245,165,36,0.28)", opacity: loading ? 0.7 : 1,
           }}>
-            {loading ? "..." : mode === "login" ? "Entrar" : "Criar conta"}
+            {loading ? "..." : mode === "login" ? "Entrar" : mode === "signup" ? "Criar conta" : "Enviar link de redefinição"}
           </button>
 
-          <button onClick={() => { setMode(mode === "login" ? "signup" : "login"); setMsg(null); }} style={{
+          {mode === "login" && (
+            <button onClick={() => { setMode("forgot"); setMsg(null); }} style={{
+              background: "transparent", border: "none", color: T.muted, fontSize: 12.5,
+              cursor: "pointer", padding: 4, fontFamily: "inherit", textAlign: "center",
+            }}>
+              Esqueci minha senha
+            </button>
+          )}
+
+          <button onClick={() => { setMode(mode === "signup" ? "login" : mode === "forgot" ? "login" : "signup"); setMsg(null); }} style={{
             background: "transparent", border: "none", color: T.muted, fontSize: 13,
             cursor: "pointer", padding: 8, fontFamily: "inherit",
           }}>
-            {mode === "login" ? "Não tem conta? Criar agora" : "Já tem conta? Entrar"}
+            {mode === "signup" ? "Já tem conta? Entrar" : mode === "forgot" ? "Voltar pro login" : "Não tem conta? Criar agora"}
           </button>
         </div>
       </div>

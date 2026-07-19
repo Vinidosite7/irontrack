@@ -27,5 +27,22 @@ export default function Page() {
 
   if (!session) return <Auth />;
 
-  return <IronTrack user={session.user} onLogout={() => supabase.auth.signOut()} />;
+  const deleteAccount = async () => {
+    try {
+      const res = await fetch("/api/delete-account", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        alert("Não consegui excluir a conta agora: " + (json.error || "erro desconhecido") + ". Tenta de novo ou fala comigo.");
+        return;
+      }
+      await supabase.auth.signOut();
+    } catch {
+      alert("Falha de conexão ao excluir a conta. Tenta de novo.");
+    }
+  };
+
+  return <IronTrack user={session.user} onLogout={() => supabase.auth.signOut()} onDeleteAccount={deleteAccount} />;
 }

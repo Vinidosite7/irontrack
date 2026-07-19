@@ -36,7 +36,7 @@ const EMPTY = {
   workouts: [], logs: {}, diet: [], dietChecks: {}, journal: [], freeFoods: {}, cardio: {},
   profile: {
     name: "", age: "", sex: "M", startWeight: "", goalWeight: "", height: "", onboarded: false, goal: "",
-    trainTime: "", trainWeek: "", cardioWeek: "", kcalTarget: "", protTarget: "", carbTarget: "", fatTarget: "", restTime: "90",
+    trainTime: "", trainWeek: "", cardioWeek: "", kcalTarget: "", protTarget: "", carbTarget: "", fatTarget: "", restSets: "60", restExercise: "120",
     weights: [], medidas: { braco: "", peito: "", cintura: "", quadril: "", coxa: "", panturrilha: "" },
   },
   lastOpen: null,
@@ -1096,9 +1096,18 @@ function ExerciseCard({ ex, data, update, onRemove, startRest, onMove, onEdit })
   const history = (data.logs[ex.id] || []).slice().sort((a, b) => b.date.localeCompare(a.date));
   const doneToday = exDoneToday(data, ex.id);
   const last = history.find((h) => h.date !== todayStr()) || history[0];
+  const todayEntry = history.find((h) => h.date === todayStr());
   const bestWeight = history.flatMap((s) => s.sets.map((st) => Number(st.peso) || 0)).reduce((a, b) => Math.max(a, b), 0);
 
-  const [sets, setSets] = useState(() => Array.from({ length: ex.sets }, () => ({ peso: "", reps: "" })));
+  const restSets = Number(data.profile.restSets) || 60;
+  const restExercise = Number(data.profile.restExercise) || 120;
+
+  const [sets, setSets] = useState(() =>
+    todayEntry
+      ? Array.from({ length: ex.sets }, (_, i) => ({ peso: String(todayEntry.sets[i]?.peso ?? ""), reps: String(todayEntry.sets[i]?.reps ?? "") }))
+      : Array.from({ length: ex.sets }, () => ({ peso: "", reps: "" }))
+  );
+  const [confirmed, setConfirmed] = useState(() => Array(ex.sets).fill(!!todayEntry));
   const [showHist, setShowHist] = useState(false);
   const [chartMode, setChartMode] = useState("max");
   const [editing, setEditing] = useState(false);
@@ -1107,15 +1116,42 @@ function ExerciseCard({ ex, data, update, onRemove, startRest, onMove, onEdit })
 
   const setField = (i, field, val) => setSets((s) => s.map((st, j) => (j === i ? { ...st, [field]: val } : st)));
 
-  const save = () => {
-    const filled = sets.filter((s) => s.peso !== "" || s.reps !== "");
+  const persist = (finalSets) => {
+    const filled = finalSets.filter((s) => s.peso !== "" || s.reps !== "");
     if (!filled.length) return;
     const entry = { date: todayStr(), sets: filled.map((s) => ({ peso: Number(s.peso) || 0, reps: Number(s.reps) || 0 })) };
     update((d) => {
       const prev = d.logs[ex.id] || [];
       return { ...d, logs: { ...d.logs, [ex.id]: [...prev.filter((s) => s.date !== entry.date), entry] } };
     });
-    if (startRest) startRest(Number(data.profile.restTime) || 90);
+  };
+
+  // toca no ✓ de uma série: confirma, salva e dispara o descanso certo.
+  // se ainda sobra série preenchida sem confirmar -> descanso curto (entre séries).
+  // se essa era a última pendente -> salva o exercício inteiro e descanso longo (entre exercícios).
+  const toggleSet = (i) => {
+    const s = sets[i];
+    if (s.peso === "" && s.reps === "") return;
+    const wasConfirmed = confirmed[i];
+    const next = confirmed.map((c, j) => (j === i ? !c : c));
+    setConfirmed(next);
+    if (wasConfirmed) return; // desmarcar não dispara nada
+    const stillPending = sets.some((st, j) => j !== i && !next[j] && (st.peso !== "" || st.reps !== ""));
+    if (stillPending) {
+      if (startRest) startRest(restSets);
+    } else {
+      persist(sets);
+      if (startRest) startRest(restExercise);
+    }
+  };
+
+  // botão principal: fecha o exercício de uma vez (confirma tudo que tiver valor e salva)
+  const finishExercise = () => {
+    const filledIdx = sets.map((s, i) => (s.peso !== "" || s.reps !== "" ? i : -1)).filter((i) => i >= 0);
+    if (!filledIdx.length) return;
+    setConfirmed(sets.map((s, i) => (filledIdx.includes(i) ? true : confirmed[i])));
+    persist(sets);
+    if (startRest) startRest(restExercise);
   };
 
   const todayMax = sets.map((s) => Number(s.peso) || 0).reduce((a, b) => Math.max(a, b), 0);
@@ -1160,21 +1196,37 @@ function ExerciseCard({ ex, data, update, onRemove, startRest, onMove, onEdit })
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {sets.map((s, i) => {
           const prev = last?.sets[i];
+          const hasValue = s.peso !== "" || s.reps !== "";
+          const isConfirmed = confirmed[i];
           return (
             <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <div style={{ width: 26, fontFamily: font.display, color: T.muted, fontSize: 13, textAlign: "center" }}>{i + 1}ª</div>
-              <input style={{ ...S.input, flex: 1 }} type="number" inputMode="decimal"
+              <input style={{ ...S.input, flex: 1, opacity: isConfirmed ? 0.75 : 1 }} type="number" inputMode="decimal"
                 placeholder={prev ? `${prev.peso} kg` : "peso (kg)"} value={s.peso} onChange={(e) => setField(i, "peso", e.target.value)} />
-              <input style={{ ...S.input, flex: 1 }} type="number" inputMode="numeric"
+              <input style={{ ...S.input, flex: 1, opacity: isConfirmed ? 0.75 : 1 }} type="number" inputMode="numeric"
                 placeholder={prev ? `${prev.reps} reps` : "reps"} value={s.reps} onChange={(e) => setField(i, "reps", e.target.value)} />
+              <button
+                onClick={() => toggleSet(i)}
+                title={isConfirmed ? "Confirmada — toca pra desmarcar" : "Confirmar série"}
+                style={{
+                  width: 30, height: 30, borderRadius: 9, flexShrink: 0, cursor: hasValue ? "pointer" : "default",
+                  border: `2px solid ${isConfirmed ? T.green : hasValue ? T.accent : T.border}`,
+                  background: isConfirmed ? T.greenSoft : hasValue ? T.accentSoft : "transparent",
+                  color: isConfirmed ? T.green : T.accent, fontSize: 15, fontWeight: 800, lineHeight: 1,
+                  opacity: hasValue ? 1 : 0.4, transition: "all .2s",
+                }}
+              >{isConfirmed ? "✓" : ""}</button>
             </div>
           );
         })}
       </div>
+      <p style={{ fontSize: 11, color: T.muted, margin: "8px 0 0" }}>
+        Confirma cada série (✓) pra cronometrar o descanso entre elas — no fim do exercício o descanso vira {restExercise}s.
+      </p>
 
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <BtnShimmer onClick={save} green={doneToday} style={{ flex: 1 }}>
-          {doneToday ? "✓ Concluído — atualizar" : "Salvar cargas de hoje"}
+        <BtnShimmer onClick={finishExercise} green={doneToday} style={{ flex: 1 }}>
+          {doneToday ? "✓ Concluído — atualizar" : "Concluir exercício"}
         </BtnShimmer>
         {history.length > 0 && (
           <button style={S.btnGhost} onClick={() => setShowHist(!showHist)}>{showHist ? "Ocultar" : "Histórico"}</button>
@@ -1529,9 +1581,40 @@ function PField({ label, value, onChange, type = "number", placeholder, step }) 
   );
 }
 
-function TabPerfil({ data, update, onLogout, userEmail, userId }) {
+function TabPerfil({ data, update, onLogout, userEmail, userId, onDeleteAccount }) {
   const p = data.profile;
   const [notifStatus, setNotifStatus] = useState(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
+  const [importMsg, setImportMsg] = useState(null);
+  const fileRef = useRef(null);
+
+  const exportBackup = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `irontrack-backup-${todayStr()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importBackup = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!parsed || typeof parsed !== "object" || !parsed.profile) throw new Error("formato inválido");
+        if (!confirm("Isso vai SUBSTITUIR todos os seus dados atuais pelo conteúdo do backup. Continuar?")) return;
+        update(() => parsed);
+        setImportMsg({ type: "ok", text: "Backup importado com sucesso!" });
+      } catch {
+        setImportMsg({ type: "err", text: "Arquivo inválido — não parece um backup do IronTrack." });
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
 
   const setField = (field, value) => update((d) => ({ ...d, profile: { ...d.profile, [field]: value } }));
   const setMedida = (field, value) => update((d) => ({ ...d, profile: { ...d.profile, medidas: { ...d.profile.medidas, [field]: value } } }));
@@ -1631,7 +1714,10 @@ function TabPerfil({ data, update, onLogout, userEmail, userId }) {
             ⚡ Aplicar sugestões: {sugKcal} kcal · {sugProt}g P · {sugCarb}g C · {sugFat}g G
           </button>
         )}
-        <PField label="Descanso entre séries (segundos)" value={p.restTime} onChange={(v) => setField("restTime", v)} placeholder="90" />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <PField label="Descanso entre séries (s)" value={p.restSets} onChange={(v) => setField("restSets", v)} placeholder="60" />
+          <PField label="Descanso entre exercícios (s)" value={p.restExercise} onChange={(v) => setField("restExercise", v)} placeholder="120" />
+        </div>
       </Card>
 
       {/* SAÚDE CALCULADA */}
@@ -1716,11 +1802,43 @@ function TabPerfil({ data, update, onLogout, userEmail, userId }) {
         </Card>
       )}
 
+      {/* BACKUP */}
+      <Card style={{ marginTop: 12 }}>
+        <div style={{ ...S.label, marginBottom: 10 }}>Backup dos dados</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <BtnShimmer style={{ flex: "1 1 140px" }} onClick={exportBackup}>⬇️ Exportar JSON</BtnShimmer>
+          <button style={{ ...S.btnGhost, flex: "1 1 140px" }} onClick={() => fileRef.current?.click()}>⬆️ Importar backup</button>
+          <input ref={fileRef} type="file" accept="application/json" style={{ display: "none" }} onChange={importBackup} />
+        </div>
+        {importMsg && (
+          <div style={{
+            marginTop: 10, fontSize: 12.5, padding: "9px 12px", borderRadius: 10,
+            background: importMsg.type === "err" ? "rgba(248,113,113,0.12)" : "rgba(74,222,128,0.12)",
+            color: importMsg.type === "err" ? T.red : T.green,
+            border: `1px solid ${importMsg.type === "err" ? "rgba(248,113,113,0.3)" : "rgba(74,222,128,0.3)"}`,
+          }}>{importMsg.text}</div>
+        )}
+        <p style={{ fontSize: 11, color: T.muted, marginTop: 8, marginBottom: 0 }}>
+          Exporta tudo (treinos, dieta, histórico, perfil) num arquivo. Guarda num lugar seguro — importar substitui os dados atuais.
+        </p>
+      </Card>
+
       <button
         style={{ ...S.btnGhost, width: "100%", marginTop: 12, color: T.red, borderColor: "rgba(248,113,113,0.3)", padding: "12px" }}
         onClick={onLogout}
       >
         Sair da conta{userEmail ? ` (${userEmail})` : ""}
+      </button>
+
+      <button
+        style={{ background: "none", border: "none", color: T.muted, fontSize: 11.5, cursor: "pointer", width: "100%", marginTop: 14, padding: 6, textDecoration: "underline" }}
+        onClick={() => {
+          if (confirm("Isso apaga PERMANENTEMENTE sua conta e todos os dados. Não tem como desfazer. Tem certeza?")) {
+            if (confirm("Última confirmação: excluir a conta agora?")) onDeleteAccount();
+          }
+        }}
+      >
+        Excluir minha conta
       </button>
     </div>
   );
@@ -1731,7 +1849,7 @@ function Onboarding({ onFinish }) {
   const [step, setStep] = useState(0);
   const [f, setF] = useState({
     name: "", age: "", sex: "M", goal: "", height: "", pesoAtual: "", goalWeight: "",
-    trainWeek: "", cardioWeek: "", restTime: "90",
+    trainWeek: "", cardioWeek: "", restSets: "60", restExercise: "120",
     kcalTarget: "", protTarget: "", carbTarget: "", fatTarget: "",
   });
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
@@ -1871,9 +1989,15 @@ function Onboarding({ onFinish }) {
                 <input style={S.input} type="number" value={f.cardioWeek} onChange={(e) => set("cardioWeek", e.target.value)} placeholder="ex: 120" />
               </div>
             </div>
-            <div>
-              <div style={lbl}>Descanso entre séries (segundos)</div>
-              <input style={S.input} type="number" value={f.restTime} onChange={(e) => set("restTime", e.target.value)} placeholder="90" />
+            <div style={row2}>
+              <div>
+                <div style={lbl}>Descanso entre séries (s)</div>
+                <input style={S.input} type="number" value={f.restSets} onChange={(e) => set("restSets", e.target.value)} placeholder="60" />
+              </div>
+              <div>
+                <div style={lbl}>Descanso entre exercícios (s)</div>
+                <input style={S.input} type="number" value={f.restExercise} onChange={(e) => set("restExercise", e.target.value)} placeholder="120" />
+              </div>
             </div>
           </div>
         )}
@@ -1942,7 +2066,7 @@ const NAV_ICONS = {
 };
 
 // ============ APP ============
-export default function IronTrack({ user, onLogout }) {
+export default function IronTrack({ user, onLogout, onDeleteAccount }) {
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("dash");
   const [banner, setBanner] = useState(null);
@@ -2044,7 +2168,7 @@ export default function IronTrack({ user, onLogout }) {
         name: f.name.trim(),
         age: f.age, sex: f.sex, height: f.height,
         startWeight: f.pesoAtual, goalWeight: f.goalWeight,
-        trainWeek: f.trainWeek, cardioWeek: f.cardioWeek, restTime: f.restTime || "90",
+        trainWeek: f.trainWeek, cardioWeek: f.cardioWeek, restSets: f.restSets || "60", restExercise: f.restExercise || "120",
         kcalTarget: f.kcalTarget, protTarget: f.protTarget, carbTarget: f.carbTarget, fatTarget: f.fatTarget,
         weights: f.pesoAtual ? [{ date: today, peso: Number(f.pesoAtual) }] : d.profile.weights,
       },
@@ -2199,7 +2323,7 @@ export default function IronTrack({ user, onLogout }) {
             {tab === "treino" && <TabTreino data={data} update={update} startRest={startRest} />}
             {tab === "dieta" && <TabDieta data={data} update={update} />}
             {tab === "diario" && <TabDiario data={data} update={update} />}
-            {tab === "perfil" && <TabPerfil data={data} update={update} onLogout={onLogout} userEmail={user?.email} userId={user?.id} />}
+            {tab === "perfil" && <TabPerfil data={data} update={update} onLogout={onLogout} userEmail={user?.email} userId={user?.id} onDeleteAccount={onDeleteAccount} />}
           </div>
         )}
       </div>
