@@ -1691,6 +1691,7 @@ function TabPerfil({ data, update, onLogout, userEmail, userId, onDeleteAccount 
       if (perm !== "granted") return;
       const res = await subscribePush(userId);
       if (res.ok) {
+        update((d) => ({ ...d, profile: { ...d.profile, pushActive: true } }));
         notifyUser("IronTrack 💪", "Push ativado! Te aviso mesmo com o app fechado.");
       } else {
         notifyUser("IronTrack 💪", "Notificações locais ativas. Pro push com app fechado, configure as VAPID keys (README).");
@@ -2190,7 +2191,9 @@ export default function IronTrack({ user, onLogout, onDeleteAccount }) {
           notified.current.add(key);
           const phrase = randPhrase();
           setBanner({ title: `🍗 Hora do ${m.name}!`, text: phrase });
-          notifyUser(`Hora do ${m.name}! 🍗`, phrase);
+          // se o push v2 já está ativo, o servidor cuida do aviso do sistema —
+          // aqui só mostramos o banner visual pra não duplicar a notificação.
+          if (!data.profile.pushActive) notifyUser(`Hora do ${m.name}! 🍗`, phrase);
         }
       });
 
@@ -2201,7 +2204,7 @@ export default function IronTrack({ user, onLogout, onDeleteAccount }) {
         notified.current.add(trainKey);
         const phrase = randPhrase();
         setBanner({ title: "🏋️ Hora do treino!", text: phrase });
-        notifyUser("Hora do treino! 🏋️", phrase);
+        if (!data.profile.pushActive) notifyUser("Hora do treino! 🏋️", phrase);
       }
     };
     check();
